@@ -155,6 +155,10 @@ wandb/
 gpt-images_synthesis/
 .DS_Store
 
+# Root-level Python scripts
+/*.py
+!/train.py
+
 # Neural Network weights -----------------------------------------------------------------------------------------------
 weights/
 *.weights
