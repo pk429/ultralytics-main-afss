@@ -153,10 +153,12 @@ runs/
 yaml/
 wandb/
 gpt-images_synthesis/
+.history/
 .DS_Store
 
 # Root-level Python scripts
 /*.py
+/*.yaml
 !/train.py
 
 # Neural Network weights -----------------------------------------------------------------------------------------------
