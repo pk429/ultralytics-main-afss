@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/mnt/sda1/xzm/Code/ultralytics-main/train.py", line 4, in <module>
+    from ultralytics import YOLO
+  File "/mnt/sda1/xzm/Code/ultralytics-main/ultralytics/__init__.py", line 13, in <module>
+    from ultralytics.utils import ASSETS, SETTINGS
+  File "/mnt/sda1/xzm/Code/ultralytics-main/ultralytics/utils/__init__.py", line 24, in <module>
+    import cv2
+ModuleNotFoundError: No module named 'cv2'

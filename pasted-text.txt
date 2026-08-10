@@ -1,0 +1,1149 @@
+import base64
+import json
+import mimetypes
+import os
+import random
+import re
+import time
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+import requests
+from scipy import ndimage
+
+
+# ========= 修改这里 =========
+BASE_URL = "http://47.89.248.63/v1"
+API_KEY = os.getenv("OPENAI_API_KEY", "sk-c08e618a035fb7d0135c7d58f40422d33c98cedc663d20433602bb4c92047cf0")
+MODEL = "gpt-image-2"
+
+# 可以填单张图片，也可以填一个图片目录。
+INPUT_SOURCE = "/mnt/sda1/xzm/datasets/cargoship_visible_obb_dataset/classifty/0724/images/"
+OUTPUT_DIR = "river_cargoship_outputs"
+# None 或 "original" 表示保持输入原图尺寸；也可以填固定尺寸，例如 "1920x1080"。
+IMAGE_SIZE = None
+ENFORCE_OUTPUT_SIZE = True
+GENERATE_LABELME_JSON = False
+GENERATE_YOLO_TXT = False
+WRITE_EMPTY_ANNOTATION_JSON = True
+WRITE_EMPTY_YOLO_TXT = True
+ANNOTATION_LABEL = "cargoship"
+ANNOTATION_VERSION = "3.3.5"
+YOLO_CLASS_ID = 0
+YOLO_CLASSES = ["cargoship"]
+ANNOTATION_METHOD = "diff"
+VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o")
+
+# 标注默认关闭。生成图完成后可按“原图 vs 生成图”的差异提取新增船只候选框。
+# 本地颜色候选函数来自原脚本，默认不用于货船样本。
+DIFF_PIXEL_THRESHOLD = 35
+DIFF_FALLBACK_THRESHOLDS = [35, 25, 18]
+DIFF_GUIDED_PIXEL_THRESHOLD = 25
+DIFF_GUIDED_MIN_CHANGED_RATIO = 0.015
+DIFF_GUIDED_MIN_MEAN_DIFF = 8.0
+MIN_BOX_AREA = 600
+MIN_BOX_WIDTH = 10
+MIN_BOX_HEIGHT = 10
+MAX_BOX_AREA_RATIO = 0.20
+LOCAL_DETECT_MAX_COMPONENT_AREA_RATIO = 0.08
+LOCAL_DETECT_MIN_DENSITY = 0.025
+BOX_MERGE_PADDING = 12
+DISCARD_BORDER_TOUCHING_BOXES = True
+MAX_ANNOTATION_BOXES = None
+
+# None 表示处理目录下全部图片。
+MAX_INPUT_IMAGES = None
+MAX_RETRIES = 2
+RETRY_SLEEP_SECONDS = 5
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+BASE_PROMPT = """
+Edit the provided UAV/drone river surveillance image into a realistic image-editing dataset
+sample.
+
+Preserve the original river channel, riverbanks, roads, greenery, vehicles, buildings,
+lighting, haze, proportions, camera angle, compression noise, sharpness, and monitoring-video
+texture. Change only the water surface area needed for the added vessels. Do not alter the
+shoreline, road, vegetation, vehicles, buildings, existing boats, or background geometry.
+
+Naturally composite inland bulk cargo vessels / coal barges on the water only. Each vessel
+must match the original perspective, scale, clarity, blur, noise, lighting, water-contact
+relationship, and aerial-view camera quality. Every vessel must sit in the river, never on
+land, roads, banks, vegetation, bridges, or buildings. Add subtle realistic contact ripples
+or wake only where each hull touches the water.
+
+Each added vessel should be a realistic inland steel bulk carrier or coal barge with a
+central open or partly covered cargo hold. Vary vessel colors and vessel subtypes in a
+realistic way across the added fleet. This is a positive-sample image: all added cargo holds
+must show large-area exposed bulk cargo.
+
+Strictly avoid text, watermark, arrows, detection boxes, labels, cartoon, illustration, CGI,
+overly polished commercial photography, dramatic lighting changes, unrealistic reflections,
+and any object placement outside the water.
+"""
+
+POSITIVE_LOAD_TYPES = [
+    {
+        "name": "uncovered_black_coal",
+        "prompt": """
+A positive sample vessel loaded with fully uncovered black coal. The hold must show matte
+black granular and broken-chunk coal. The load may have a slightly leveled or compacted top
+from real loading, but it must still show rough coal pieces, small height variations, edge
+slopes near the hold walls, and a non-reflective texture.
+""",
+    },
+    {
+        "name": "uncovered_white_or_dark_gravel_sand",
+        "prompt": """
+A positive sample vessel loaded with fully uncovered white, light gray, dark gray, or
+gray-black crushed stone / gravel / coarse sand. The cargo must look like many small
+irregular particles or stones. It may be somewhat leveled across the hold as real aggregate
+often is, but the surface must retain speckled granular texture, subtle ripples or low ridges,
+slight unevenness, edge buildup near the coaming, and no smooth tarp-like areas.
+""",
+    },
+    {
+        "name": "uncovered_dark_or_ochre_earthwork_soil",
+        "prompt": """
+A positive sample vessel loaded with fully uncovered dark soil, gray-brown soil, or
+yellowish-ochre earthwork material. The load may be compacted or blade-leveled in places,
+but it must still appear coarse, loose, and matte, with soil clods, tire/loader-like shallow
+tracks or subtle ridges, low pile slopes, irregular edges, and natural loose-earth texture.
+""",
+    },
+    {
+        "name": "uncovered_yellow_sand",
+        "prompt": """
+A positive sample vessel loaded with fully uncovered yellow sand. The cargo must be yellow,
+tan-yellow, or ochre sand. Real sand can look partially leveled or compacted, so the top may
+be broad and gently flat, but it must show fine granular texture, matte dry surface, subtle
+ripples or shovel/loader ridges, low pile slopes at the sides, and irregular pile edges. It
+must read as exposed sand, not a smooth tarp, deck paint, reflection, or flat cover.
+""",
+    },
+    {
+        "name": "half_tarp_exposed_coal",
+        "prompt": """
+A positive sample vessel where a tarp or hatch cover covers no more than about half of the
+cargo hold, leaving more than half of the black coal visibly exposed. The exposed area must
+show granular broken coal pieces and rough matte texture. The exposed coal may be partly
+leveled from loading, but it must not look like a flat dark sheet, hatch cover, shadow, or
+reflection.
+""",
+    },
+    {
+        "name": "partial_green_net_exposed_yellow_sand",
+        "prompt": """
+A positive sample vessel where a green dust-control net covers only a small part to about
+half of the hold, leaving most yellow or tan-yellow sand visibly exposed. The exposed sand
+may be slightly leveled or compacted, but must show fine granular texture, matte dry surface,
+subtle low ridges, side pile slopes, and irregular pile edges. The green net must be visibly
+different from the exposed sand and must not cover more than half of the cargo body.
+""",
+    },
+    {
+        "name": "sectional_cover_exposed_mixed_gravel_sand_coal",
+        "prompt": """
+A positive sample vessel with sectional hatch covers or tarp strips covering less than half
+of the hold, leaving most mixed bulk material exposed: white or dark crushed stone / gravel /
+coarse sand, yellow or tan-yellow sand, and black coal. The visible cargo must be chunky,
+granular, matte, and clearly different from the flat cover material. Some material patches may
+be slightly leveled or compacted, as in real loading, but the exposed mixed cargo must still
+show particle texture, subtle height changes, low pile slopes, color/material boundaries, and
+irregular edges. Do not let the cover, shadow, or reflection read as cargo.
+""",
+    },
+]
+
+SHIP_APPEARANCE_VARIANTS = [
+    {
+        "name": "rust_red_open_hold_barge",
+        "prompt": """
+A weathered rust-red inland open-hold bulk barge with dark rubbed steel edges, worn deck
+paint, small stern cabin, and utilitarian workboat details.
+""",
+    },
+    {
+        "name": "dark_blue_steel_coal_barge",
+        "prompt": """
+A dark blue or blue-black steel coal barge with faded paint, rust streaks near the waterline,
+low side coamings, and a compact aft wheelhouse.
+""",
+    },
+    {
+        "name": "black_gray_low_freeboard_barge",
+        "prompt": """
+A black or charcoal-gray low-freeboard cargo barge with a long rectangular hold, weathered
+steel sides, dull highlights, and practical inland-river proportions.
+""",
+    },
+    {
+        "name": "green_white_cabin_bulk_carrier",
+        "prompt": """
+A dark green steel bulk carrier with a small white or off-white cabin, rusty red deck trim,
+open cargo hold, and worn industrial finish.
+""",
+    },
+    {
+        "name": "brown_red_sectional_hold_vessel",
+        "prompt": """
+A brown-red inland bulk vessel with sectional hatch rails, partial cover hardware, scuffed
+paint, black rubber fenders, and a long narrow cargo hold.
+""",
+    },
+    {
+        "name": "gray_workboat_style_carrier",
+        "prompt": """
+A medium-gray utilitarian river carrier with dark trim, slightly squared bow, compact
+wheelhouse, visible hatch frames, and muted weathered paint.
+""",
+    },
+    {
+        "name": "dark_green_dusty_aggregate_barge",
+        "prompt": """
+A dark green or olive steel aggregate barge with dusty deck edges, rust patches, low cargo
+coamings, and a small stern machinery area.
+""",
+    },
+    {
+        "name": "faded_black_red_trim_barge",
+        "prompt": """
+A faded black steel barge with red-brown trim, worn side plating, small bollards, and a long
+plain open hold typical of inland freight traffic.
+""",
+    },
+]
+
+PLACEMENT_RULES = [
+    """
+Place all required added barges in separate open-water regions where they can fit naturally:
+one for each required positive load type. Align all vessels with the dominant river direction
+and scale them like existing vessels in the UAV frame.
+""",
+    """
+Place the added positive-sample barges as realistic river traffic: some closer and larger,
+some farther and smaller, but each cargo hold state, including yellow sand, must remain
+visible enough to distinguish the exposed load type.
+""",
+    """
+Use an oblique top-down composition: all added vessels should follow the same apparent angle,
+softness, and water-contact behavior as nearby river traffic. Keep enough water between
+vessels so they do not merge visually.
+""",
+    """
+Place all positive-sample vessels away from banks and roads, with enough surrounding water
+visible so each hull contact and scale reads naturally from surveillance footage.
+""",
+]
+
+DISTANCE_SCALE_RULES = [
+    """
+Use a near-middle-far distribution: place two vessels relatively closer and larger, several
+at medium distance, and one or two farther away and smaller. Farther vessels should be
+slightly softer and lower-detail, while still readable as loaded cargo barges.
+""",
+    """
+Create realistic perspective scale variation along the river: vessels farther upstream or
+farther from the camera must be smaller, softer, and lower contrast; nearer vessels may be
+larger and clearer. Do not make all added vessels the same size.
+""",
+    """
+Use mixed vessel sizes consistent with real inland traffic: include at least one large
+foreground or midground barge, several medium barges, and one smaller distant barge. Keep the
+scale tied to the camera perspective and surrounding river width.
+""",
+    """
+Place vessels at different depths in the frame, not in a flat row. Their hull size, wake size,
+sharpness, and visible cargo detail should gradually reduce with distance from the camera.
+""",
+]
+# ==========================
+
+
+def guess_mime_type(file_path: Path) -> str:
+    mime_type, _ = mimetypes.guess_type(str(file_path))
+    return mime_type or "application/octet-stream"
+
+
+def save_b64_image(b64_string: str, output_path: Path):
+    img_bytes = base64.b64decode(b64_string)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "wb") as f:
+        f.write(img_bytes)
+
+
+def parse_image_size(image_size: str) -> tuple[int, int]:
+    try:
+        width_text, height_text = image_size.lower().split("x", 1)
+        width = int(width_text)
+        height = int(height_text)
+    except ValueError as exc:
+        raise ValueError(f"IMAGE_SIZE 格式错误，应类似 1920x1080: {image_size}") from exc
+
+    if width <= 0 or height <= 0:
+        raise ValueError(f"IMAGE_SIZE 必须是正整数: {image_size}")
+
+    return width, height
+
+
+def resolve_output_size(image_path: Path) -> tuple[int, int]:
+    if IMAGE_SIZE is None or str(IMAGE_SIZE).lower() == "original":
+        with Image.open(image_path) as img:
+            return img.size
+
+    return parse_image_size(str(IMAGE_SIZE))
+
+
+def format_image_size(size: tuple[int, int]) -> str:
+    return f"{size[0]}x{size[1]}"
+
+
+def enforce_output_size(output_path: Path, target_size: tuple[int, int]):
+    if not ENFORCE_OUTPUT_SIZE:
+        return
+
+    with Image.open(output_path) as img:
+        original_size = img.size
+
+        if original_size == target_size:
+            print(f"输出尺寸已符合要求: {original_size[0]}x{original_size[1]}")
+            return
+
+        resized = img.convert("RGB").resize(target_size, Image.Resampling.LANCZOS)
+        resized.save(output_path)
+
+    print(
+        "已强制调整输出尺寸:",
+        f"{original_size[0]}x{original_size[1]} -> {target_size[0]}x{target_size[1]}",
+    )
+
+
+def dilate_mask(mask: np.ndarray, iterations: int) -> np.ndarray:
+    structure = np.ones((3, 3), dtype=bool)
+    return ndimage.binary_dilation(mask, structure=structure, iterations=iterations)
+
+
+def clean_change_mask(mask: np.ndarray) -> np.ndarray:
+    structure = np.ones((3, 3), dtype=bool)
+    mask = ndimage.binary_opening(mask, structure=structure, iterations=1)
+    mask = ndimage.binary_closing(mask, structure=structure, iterations=2)
+    return dilate_mask(mask, iterations=2)
+
+
+def boxes_overlap_or_close(box_a: tuple[int, int, int, int], box_b: tuple[int, int, int, int]) -> bool:
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+
+    return not (
+        ax2 + BOX_MERGE_PADDING < bx1
+        or bx2 + BOX_MERGE_PADDING < ax1
+        or ay2 + BOX_MERGE_PADDING < by1
+        or by2 + BOX_MERGE_PADDING < ay1
+    )
+
+
+def merge_boxes(boxes: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+    merged: list[tuple[int, int, int, int]] = []
+
+    for box in boxes:
+        current = box
+        changed = True
+
+        while changed:
+            changed = False
+            remaining = []
+
+            for existing in merged:
+                if boxes_overlap_or_close(current, existing):
+                    current = (
+                        min(current[0], existing[0]),
+                        min(current[1], existing[1]),
+                        max(current[2], existing[2]),
+                        max(current[3], existing[3]),
+                    )
+                    changed = True
+                else:
+                    remaining.append(existing)
+
+            merged = remaining
+
+        merged.append(current)
+
+    return merged
+
+
+def filter_boxes(
+    boxes: list[tuple[int, int, int, int]],
+    image_width: int,
+    image_height: int,
+    discard_border_touching: bool = DISCARD_BORDER_TOUCHING_BOXES,
+) -> list[tuple[int, int, int, int]]:
+    image_area = image_width * image_height
+    filtered = []
+
+    for x1, y1, x2, y2 in boxes:
+        x1 = max(0, min(image_width, x1))
+        y1 = max(0, min(image_height, y1))
+        x2 = max(0, min(image_width, x2))
+        y2 = max(0, min(image_height, y2))
+        box_width = x2 - x1
+        box_height = y2 - y1
+
+        if box_width < MIN_BOX_WIDTH or box_height < MIN_BOX_HEIGHT:
+            continue
+
+        box_area = box_width * box_height
+
+        if box_area < MIN_BOX_AREA:
+            continue
+
+        if box_area / image_area > MAX_BOX_AREA_RATIO:
+            continue
+
+        if discard_border_touching and (
+            x1 <= 0 or y1 <= 0 or x2 >= image_width or y2 >= image_height
+        ):
+            continue
+
+        filtered.append((x1, y1, x2, y2))
+
+    return filtered
+
+
+def extract_changed_boxes(
+    original_path: Path,
+    generated_path: Path,
+    threshold: int = DIFF_PIXEL_THRESHOLD,
+    discard_border_touching: bool = DISCARD_BORDER_TOUCHING_BOXES,
+) -> tuple[list[tuple[int, int, int, int]], int, int]:
+    with Image.open(generated_path) as generated_img:
+        generated_rgb = generated_img.convert("RGB")
+        width, height = generated_rgb.size
+        generated_array = np.asarray(generated_rgb, dtype=np.int16)
+
+    with Image.open(original_path) as original_img:
+        original_rgb = original_img.convert("RGB").resize((width, height), Image.Resampling.LANCZOS)
+        original_array = np.asarray(original_rgb, dtype=np.int16)
+
+    diff = np.abs(generated_array - original_array)
+    change_score = diff.max(axis=2)
+    mask = change_score >= threshold
+    mask = clean_change_mask(mask)
+
+    labeled_mask, component_count = ndimage.label(mask)
+    component_slices = ndimage.find_objects(labeled_mask)
+    boxes = []
+
+    for component_id, component_slice in enumerate(component_slices, start=1):
+        if component_slice is None:
+            continue
+
+        y_slice, x_slice = component_slice
+        component_mask = labeled_mask[component_slice] == component_id
+        area = int(component_mask.sum())
+        x1 = int(x_slice.start)
+        y1 = int(y_slice.start)
+        x2 = int(x_slice.stop)
+        y2 = int(y_slice.stop)
+        box_width = x2 - x1
+        box_height = y2 - y1
+
+        boxes.append((x1, y1, x2, y2))
+
+    boxes = merge_boxes(boxes)
+    boxes = filter_boxes(boxes, width, height, discard_border_touching)
+
+    return boxes, width, height
+
+
+def extract_changed_boxes_multi_pass(original_path: Path, generated_path: Path) -> tuple[list[tuple[int, int, int, int]], int, int]:
+    last_result: tuple[list[tuple[int, int, int, int]], int, int] | None = None
+
+    for threshold in DIFF_FALLBACK_THRESHOLDS:
+        boxes, width, height = extract_changed_boxes(
+            original_path,
+            generated_path,
+            threshold=threshold,
+            discard_border_touching=True,
+        )
+        last_result = (boxes, width, height)
+
+        if boxes:
+            print(f"差异法标注成功: threshold={threshold}, boxes={len(boxes)}")
+            return boxes, width, height
+
+    for threshold in DIFF_FALLBACK_THRESHOLDS:
+        boxes, width, height = extract_changed_boxes(
+            original_path,
+            generated_path,
+            threshold=threshold,
+            discard_border_touching=False,
+        )
+        last_result = (boxes, width, height)
+
+        if boxes:
+            print(f"宽松差异法标注成功: threshold={threshold}, boxes={len(boxes)}")
+            return boxes, width, height
+
+    if last_result is not None:
+        return last_result
+
+    with Image.open(generated_path) as generated_img:
+        width, height = generated_img.size
+
+    return [], width, height
+
+
+def extract_color_candidate_boxes(generated_path: Path) -> tuple[list[tuple[int, int, int, int]], int, int]:
+    with Image.open(generated_path) as generated_img:
+        rgb_img = generated_img.convert("RGB")
+        hsv_img = generated_img.convert("HSV")
+        width, height = rgb_img.size
+        rgb = np.asarray(rgb_img, dtype=np.int16)
+        hsv = np.asarray(hsv_img, dtype=np.int16)
+
+    hue = hsv[:, :, 0]
+    saturation = hsv[:, :, 1]
+    value = hsv[:, :, 2]
+    red = rgb[:, :, 0]
+    green = rgb[:, :, 1]
+    blue = rgb[:, :, 2]
+
+    white_or_cardboard = (value >= 155) & (saturation <= 110)
+    red_brick_or_soil = (
+        ((hue <= 24) | (hue >= 245))
+        & (saturation >= 65)
+        & (value >= 70)
+        & (red >= green * 1.05)
+    )
+    blue_packaging = (
+        (hue >= 120)
+        & (hue <= 190)
+        & (saturation >= 50)
+        & (value >= 60)
+        & (blue >= red)
+    )
+    gray_concrete = (
+        (value >= 95)
+        & (value <= 215)
+        & (saturation <= 65)
+        & (np.abs(red - green) <= 22)
+        & (np.abs(green - blue) <= 22)
+    )
+    bright_mixed_waste = (
+        (value >= 135)
+        & (saturation >= 35)
+        & ~((hue >= 55) & (hue <= 110))
+    )
+
+    material_masks = [
+        white_or_cardboard,
+        red_brick_or_soil,
+        blue_packaging,
+        gray_concrete,
+        bright_mixed_waste,
+    ]
+    combined_candidate_mask = np.zeros((height, width), dtype=bool)
+    boxes = []
+
+    for material_mask in material_masks:
+        mask = ndimage.binary_opening(
+            material_mask,
+            structure=np.ones((2, 2), dtype=bool),
+            iterations=1,
+        )
+        mask = ndimage.binary_dilation(
+            mask,
+            structure=np.ones((5, 5), dtype=bool),
+            iterations=2,
+        )
+        mask = ndimage.binary_closing(
+            mask,
+            structure=np.ones((5, 5), dtype=bool),
+            iterations=1,
+        )
+        combined_candidate_mask |= mask
+
+        labeled_mask, _ = ndimage.label(mask)
+        component_slices = ndimage.find_objects(labeled_mask)
+
+        for component_id, component_slice in enumerate(component_slices, start=1):
+            if component_slice is None:
+                continue
+
+            y_slice, x_slice = component_slice
+            component_mask = labeled_mask[component_slice] == component_id
+            area = int(component_mask.sum())
+            x1 = int(x_slice.start)
+            y1 = int(y_slice.start)
+            x2 = int(x_slice.stop)
+            y2 = int(y_slice.stop)
+            box_width = x2 - x1
+            box_height = y2 - y1
+            box_area = box_width * box_height
+
+            if area < MIN_BOX_AREA:
+                continue
+
+            if box_width < MIN_BOX_WIDTH or box_height < MIN_BOX_HEIGHT:
+                continue
+
+            if box_area / (width * height) > LOCAL_DETECT_MAX_COMPONENT_AREA_RATIO:
+                continue
+
+            if box_width / max(box_height, 1) > 8 or box_height / max(box_width, 1) > 8:
+                continue
+
+            boxes.append((x1, y1, x2, y2))
+
+    boxes = merge_boxes(boxes)
+    boxes = filter_boxes(boxes, width, height, discard_border_touching=False)
+    dense_boxes = []
+
+    for x1, y1, x2, y2 in boxes:
+        box_area = (x2 - x1) * (y2 - y1)
+        candidate_area = int(combined_candidate_mask[y1:y2, x1:x2].sum())
+        density = candidate_area / max(box_area, 1)
+
+        if density < LOCAL_DETECT_MIN_DENSITY:
+            continue
+
+        dense_boxes.append((x1, y1, x2, y2))
+
+    boxes = dense_boxes
+    boxes = sorted(boxes, key=lambda box: (box[2] - box[0]) * (box[3] - box[1]), reverse=True)
+
+    if MAX_ANNOTATION_BOXES is not None:
+        boxes = boxes[:MAX_ANNOTATION_BOXES]
+
+    return boxes, width, height
+
+
+def extract_diff_guided_cargoship_boxes(
+    original_path: Path,
+    generated_path: Path,
+) -> tuple[list[tuple[int, int, int, int]], int, int]:
+    candidate_boxes, width, height = extract_color_candidate_boxes(generated_path)
+
+    if not candidate_boxes:
+        print("生成图本地候选检测返回 0 个框，改用纯差异法")
+        return extract_changed_boxes_multi_pass(original_path, generated_path)
+
+    with Image.open(generated_path) as generated_img:
+        generated_array = np.asarray(generated_img.convert("RGB"), dtype=np.int16)
+
+    with Image.open(original_path) as original_img:
+        original_rgb = original_img.convert("RGB").resize((width, height), Image.Resampling.LANCZOS)
+        original_array = np.asarray(original_rgb, dtype=np.int16)
+
+    diff = np.abs(generated_array - original_array)
+    diff_score = diff.max(axis=2)
+    filtered_boxes = []
+
+    for box in candidate_boxes:
+        x1, y1, x2, y2 = box
+        box_diff = diff_score[y1:y2, x1:x2]
+
+        if box_diff.size == 0:
+            continue
+
+        changed_ratio = float((box_diff >= DIFF_GUIDED_PIXEL_THRESHOLD).mean())
+        mean_diff = float(box_diff.mean())
+
+        if (
+            changed_ratio >= DIFF_GUIDED_MIN_CHANGED_RATIO
+            or mean_diff >= DIFF_GUIDED_MIN_MEAN_DIFF
+        ):
+            filtered_boxes.append(box)
+
+    if filtered_boxes:
+        print(
+            "差异引导疑似新增船只检测完成:",
+            f"candidates={len(candidate_boxes)}, boxes={len(filtered_boxes)}",
+        )
+        return filtered_boxes, width, height
+
+    print("差异引导过滤后为 0 个框，保留生成图本地候选框")
+    return candidate_boxes, width, height
+
+
+def image_to_data_url(image_path: Path) -> str:
+    mime_type = guess_mime_type(image_path)
+
+    with open(image_path, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode("utf-8")
+
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def parse_json_from_text(text: str) -> dict:
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    if not cleaned.startswith("{"):
+        match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+
+        if not match:
+            raise ValueError("视觉模型返回内容中没有 JSON 对象")
+
+        cleaned = match.group(0)
+
+    return json.loads(cleaned)
+
+
+def request_vision_boxes(original_path: Path, generated_path: Path) -> tuple[list[tuple[int, int, int, int]], int, int]:
+    if not API_KEY:
+        raise RuntimeError("未设置 OPENAI_API_KEY 环境变量")
+
+    with Image.open(generated_path) as generated_img:
+        image_width, image_height = generated_img.size
+
+    url = f"{BASE_URL.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+    }
+    prompt = f"""
+You are creating object detection annotations for a YOLO training dataset.
+
+The first image is the original UAV river surveillance image. The second image is the edited
+image. Find only newly added inland cargo ships / coal barges in the second image. Ignore
+unchanged riverbanks, vegetation, water, roads, buildings, existing boats, shadows,
+compression differences, and background changes.
+
+Return only JSON. Do not include markdown. Use this schema:
+{{
+  "boxes": [
+    {{"label": "{ANNOTATION_LABEL}", "x1": 0, "y1": 0, "x2": 100, "y2": 100}}
+  ]
+}}
+
+Coordinates must be pixel coordinates in the second image, whose size is
+{image_width}x{image_height}. Use tight rectangle boxes around each newly added cargo ship
+or barge. If separate added vessels are clearly apart, use separate boxes.
+"""
+    payload = {
+        "model": VISION_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt.strip()},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_to_data_url(original_path)},
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_to_data_url(generated_path)},
+                    },
+                ],
+            }
+        ],
+        "temperature": 0,
+    }
+
+    response = requests.post(url, headers=headers, json=payload, timeout=300)
+    response.raise_for_status()
+    result = response.json()
+    content = result["choices"][0]["message"]["content"]
+    parsed = parse_json_from_text(content)
+    boxes = []
+
+    for item in parsed.get("boxes", []):
+        try:
+            box = (
+                int(round(float(item["x1"]))),
+                int(round(float(item["y1"]))),
+                int(round(float(item["x2"]))),
+                int(round(float(item["y2"]))),
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        boxes.append(box)
+
+    boxes = filter_boxes(boxes, image_width, image_height)
+
+    return boxes, image_width, image_height
+
+
+def extract_annotation_boxes(original_path: Path, generated_path: Path) -> tuple[list[tuple[int, int, int, int]], int, int]:
+    if ANNOTATION_METHOD == "diff_guided":
+        return extract_diff_guided_cargoship_boxes(original_path, generated_path)
+
+    if ANNOTATION_METHOD == "local_detect":
+        boxes, width, height = extract_color_candidate_boxes(generated_path)
+        print(f"本地候选检测完成: boxes={len(boxes)}")
+        return boxes, width, height
+
+    if ANNOTATION_METHOD == "vision":
+        try:
+            boxes, width, height = request_vision_boxes(original_path, generated_path)
+
+            if boxes:
+                print(f"视觉标注成功: boxes={len(boxes)}")
+                return boxes, width, height
+
+            print("视觉标注返回 0 个框，改用差异法")
+        except Exception as exc:
+            print(f"视觉标注失败，改用差异法: {exc}")
+
+    if ANNOTATION_METHOD == "diff":
+        return extract_changed_boxes_multi_pass(original_path, generated_path)
+
+    boxes, width, height = extract_changed_boxes_multi_pass(original_path, generated_path)
+
+    if boxes:
+        return boxes, width, height
+
+    print("差异法返回 0 个框，改用本地颜色候选法")
+    return extract_color_candidate_boxes(generated_path)
+
+
+def make_labelme_shape(box: tuple[int, int, int, int]) -> dict:
+    x1, y1, x2, y2 = box
+
+    return {
+        "label": ANNOTATION_LABEL,
+        "score": None,
+        "points": [
+            [float(x1), float(y1)],
+            [float(x2), float(y1)],
+            [float(x2), float(y2)],
+            [float(x1), float(y2)],
+        ],
+        "group_id": None,
+        "description": "",
+        "difficult": False,
+        "shape_type": "rectangle",
+        "flags": {},
+        "attributes": {},
+        "kie_linking": [],
+    }
+
+
+def write_yolo_annotations(original_path: Path, generated_path: Path):
+    if not GENERATE_YOLO_TXT:
+        return
+
+    boxes, image_width, image_height = extract_annotation_boxes(original_path, generated_path)
+
+    if not boxes:
+        print(f"警告: 未检测到新增船只区域: {generated_path}")
+
+    write_yolo_txt(generated_path, boxes, image_width, image_height)
+    write_yolo_classes_file(generated_path.parent)
+
+
+def write_labelme_json(original_path: Path, generated_path: Path):
+    if not GENERATE_LABELME_JSON and not GENERATE_YOLO_TXT:
+        return
+
+    boxes, image_width, image_height = extract_annotation_boxes(original_path, generated_path)
+
+    if not boxes:
+        print(f"警告: 未提取到标注框: {generated_path}")
+
+    if GENERATE_YOLO_TXT:
+        write_yolo_txt(generated_path, boxes, image_width, image_height)
+        write_yolo_classes_file(generated_path.parent)
+
+    if not GENERATE_LABELME_JSON:
+        return
+
+    if not boxes and not WRITE_EMPTY_ANNOTATION_JSON:
+        print(f"未提取到标注框，不写空 JSON: {generated_path}")
+        return
+
+    annotation = {
+        "version": ANNOTATION_VERSION,
+        "flags": {},
+        "shapes": [make_labelme_shape(box) for box in boxes],
+        "imagePath": generated_path.name,
+        "imageData": None,
+        "imageHeight": image_height,
+        "imageWidth": image_width,
+    }
+
+    json_path = generated_path.with_suffix(".json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(annotation, f, ensure_ascii=False, indent=2)
+
+    print(f"标注 JSON 已保存: {json_path}，框数量: {len(boxes)}")
+
+
+def box_to_yolo_line(box: tuple[int, int, int, int], image_width: int, image_height: int) -> str:
+    x1, y1, x2, y2 = box
+    x_center = ((x1 + x2) / 2) / image_width
+    y_center = ((y1 + y2) / 2) / image_height
+    box_width = (x2 - x1) / image_width
+    box_height = (y2 - y1) / image_height
+
+    return (
+        f"{YOLO_CLASS_ID} "
+        f"{x_center:.6f} "
+        f"{y_center:.6f} "
+        f"{box_width:.6f} "
+        f"{box_height:.6f}"
+    )
+
+
+def write_yolo_txt(
+    generated_path: Path,
+    boxes: list[tuple[int, int, int, int]],
+    image_width: int,
+    image_height: int,
+):
+    if not boxes and not WRITE_EMPTY_YOLO_TXT:
+        print(f"未提取到标注框，不写 YOLO TXT: {generated_path}")
+        return
+
+    txt_path = generated_path.with_suffix(".txt")
+    lines = [box_to_yolo_line(box, image_width, image_height) for box in boxes]
+
+    with open(txt_path, "w", encoding="utf-8") as f:
+        if lines:
+            f.write("\n".join(lines))
+            f.write("\n")
+
+    print(f"YOLO TXT 已保存: {txt_path}，框数量: {len(boxes)}")
+
+
+def write_yolo_classes_file(output_dir: Path):
+    classes_path = output_dir / "classes.txt"
+
+    with open(classes_path, "w", encoding="utf-8") as f:
+        for class_name in YOLO_CLASSES:
+            f.write(f"{class_name}\n")
+
+
+def collect_input_images(input_source: str) -> list[Path]:
+    source = Path(input_source)
+
+    if source.is_file():
+        return [source]
+
+    if not source.is_dir():
+        raise FileNotFoundError(f"找不到输入图片或目录: {input_source}")
+
+    images = [
+        path
+        for path in sorted(source.iterdir())
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+
+    if not images:
+        raise FileNotFoundError(f"目录中没有可处理的图片: {input_source}")
+
+    if MAX_INPUT_IMAGES is not None:
+        images = images[:MAX_INPUT_IMAGES]
+
+    return images
+
+
+def build_prompt() -> str:
+    load_types = POSITIVE_LOAD_TYPES.copy()
+    random.shuffle(load_types)
+    load_type_count = len(load_types)
+    load_type_text = "\n\n".join(
+        f"{index}. {load_type['name']}:\n{load_type['prompt'].strip()}"
+        for index, load_type in enumerate(load_types, start=1)
+    )
+    ship_appearances = SHIP_APPEARANCE_VARIANTS.copy()
+    random.shuffle(ship_appearances)
+    ship_appearance_text = "\n\n".join(
+        f"{index}. {appearance['name']}:\n{appearance['prompt'].strip()}"
+        for index, appearance in enumerate(ship_appearances[:load_type_count], start=1)
+    )
+    placement_rule = random.choice(PLACEMENT_RULES).strip()
+    distance_scale_rule = random.choice(DISTANCE_SCALE_RULES).strip()
+
+    return f"""
+{BASE_PROMPT.strip()}
+
+Specific edit:
+Create exactly one realistic edited output image from the input image. In that single image,
+naturally add {load_type_count} different positive-sample inland bulk-cargo / coal-barge
+loading types, each exactly once. Keep the image as one real UAV river surveillance frame,
+not a collage and not multiple panels.
+
+Placement rule:
+{placement_rule}
+
+Distance and scale rule:
+{distance_scale_rule}
+
+Required positive loading types:
+{load_type_text}
+
+Required realistic vessel color and subtype variation:
+Use the following varied vessel appearances across the added vessels. Pair them naturally
+with the loading types, and avoid making all vessels the same color, hull form, cabin layout,
+or hatch/hold structure.
+
+{ship_appearance_text}
+
+Final check:
+- The output must be one image, not {load_type_count} separate variants or panels.
+- All {load_type_count} added vessels are positive samples with large-area exposed cargo.
+- Vessel colors and vessel subtypes must vary realistically: use weathered rust red, dark
+  blue, charcoal/black, dark green, gray, brown-red, or faded industrial paint where suitable.
+- Vessel sizes and distances must vary realistically: include near/mid/far placements, with
+  nearer vessels larger and clearer, farther vessels smaller, softer, lower contrast, and
+  less detailed, all consistent with river perspective and water width.
+- Include different real inland-cargo details such as open-hold barges, coal barges,
+  aggregate barges, compact aft wheelhouses, low side coamings, hatch rails, partial cover
+  hardware, rubber fenders, worn deck trim, and rust streaks.
+- Each cargo hold must clearly show real bulk-material evidence: granular or chunky texture,
+  matte surface, subtle height variation, edge pile slopes, low ridges, clods, or particle
+  speckling. Some cargo surfaces may be partially leveled or compacted as in real loading,
+  especially sand, soil, gravel, and mixed aggregate.
+- Include white or dark crushed stone / gravel / coarse sand, dark or ochre earthwork soil,
+  yellow/tan-yellow sand, exposed coal, and mixed gravel-sand-coal as distinct visible cargo
+  materials.
+- The yellow sand cargo type must read as visibly yellow/tan-yellow granular sand, not a flat
+  cover, deck paint, reflection, or hatch cover.
+- At least half of each cargo hold's cargo body must remain visibly exposed.
+- Keep original river, banks, roads, greenery, vehicles, lighting, proportions, and monitoring-video texture unchanged.
+- Add vessel(s) only on water, never on shore, road, vegetation, or buildings.
+- Match perspective, scale, sharpness, compression noise, and water-contact relationship.
+- Do not mistake flat black tarp, hatch cover, green net, deck color, shadow, or reflection
+  for coal, sand, gravel, soil, or mixed bulk cargo.
+- Do not add text, watermark, arrows, detection boxes, labels, cartoon, illustration, CGI, or commercial-photo styling.
+"""
+
+
+def download_image(image_url: str, output_path: Path):
+    img_resp = requests.get(image_url, timeout=300)
+    img_resp.raise_for_status()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "wb") as f:
+        f.write(img_resp.content)
+
+
+def request_image_edit(image_path: Path, prompt: str, target_size: tuple[int, int]):
+    if not API_KEY:
+        raise RuntimeError("未设置 OPENAI_API_KEY 环境变量")
+
+    url = f"{BASE_URL.rstrip('/')}/images/edits"
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+    }
+
+    mime_type = guess_mime_type(image_path)
+
+    with open(image_path, "rb") as img_file:
+        files = {
+            "image": (image_path.name, img_file, mime_type),
+        }
+        data = {
+            "model": MODEL,
+            "prompt": prompt,
+            "n": 1,
+            "size": format_image_size(target_size),
+        }
+
+        response = requests.post(
+            url,
+            headers=headers,
+            files=files,
+            data=data,
+            timeout=300,
+        )
+
+    return response
+
+
+def edit_image(image_path: Path, prompt: str, output_path: Path):
+    target_size = resolve_output_size(image_path)
+
+    for attempt in range(1, MAX_RETRIES + 2):
+        response = request_image_edit(image_path, prompt, target_size)
+
+        print("HTTP 状态码:", response.status_code)
+
+        if response.status_code == 200:
+            break
+
+        print("请求失败，返回内容如下:")
+        print(response.text)
+
+        if attempt <= MAX_RETRIES:
+            print(f"{RETRY_SLEEP_SECONDS} 秒后重试，第 {attempt + 1} 次请求...")
+            time.sleep(RETRY_SLEEP_SECONDS)
+    else:
+        return False
+
+    if response.status_code != 200:
+        return False
+
+    try:
+        result = response.json()
+    except Exception:
+        print("返回不是合法 JSON，原始返回如下:")
+        print(response.text)
+        return False
+
+    if "data" not in result or not result["data"]:
+        print("返回中没有 data 字段，完整返回如下:")
+        print(result)
+        return False
+
+    item = result["data"][0]
+
+    if "b64_json" in item:
+        save_b64_image(item["b64_json"], output_path)
+        enforce_output_size(output_path, target_size)
+        return True
+
+    if "url" in item:
+        download_image(item["url"], output_path)
+        enforce_output_size(output_path, target_size)
+        return True
+
+    print("返回中既没有 b64_json，也没有 url。完整返回如下:")
+    print(result)
+    return False
+
+
+def main():
+    input_images = collect_input_images(INPUT_SOURCE)
+    output_dir = Path(OUTPUT_DIR)
+
+    print("请求地址:", f"{BASE_URL.rstrip('/')}/images/edits")
+    print(f"输入图片数量: {len(input_images)}")
+    print(f"每张图片输出数量: 1")
+    print(f"每张输出图包含正样本装载类型数: {len(POSITIVE_LOAD_TYPES)}")
+    print(f"输出目录: {output_dir}")
+
+    total = 0
+    succeeded = 0
+
+    for image_index, image_path in enumerate(input_images, start=1):
+        total += 1
+        output_path = output_dir / f"{image_path.stem}_{len(POSITIVE_LOAD_TYPES)}_positive_cargo_types.png"
+        prompt = build_prompt()
+
+        print(f"\n[{total}] 开始编辑: {image_path} -> {output_path}")
+        if output_path.exists():
+            enforce_output_size(output_path, resolve_output_size(image_path))
+            write_yolo_annotations(image_path, output_path)
+            succeeded += 1
+            print(f"输出已存在，跳过: {output_path}")
+            continue
+
+        if edit_image(image_path, prompt, output_path):
+            write_yolo_annotations(image_path, output_path)
+            succeeded += 1
+            print(f"修改成功，输出图片已保存到: {output_path}")
+
+    print(f"\n完成: {succeeded}/{total} 张生成成功")
+
+
+if __name__ == "__main__":
+    main()
