@@ -1,4 +1,4 @@
-"""YOLO 验证脚本：支持 yaml 或 images/labels 文件夹。"""
+"""YOLO 验证脚本：支持 yaml 或 images/labels 文件夹。."""
 
 # """ascend版本"""
 # from ultralytics.nn.modules import Conv
@@ -6,10 +6,13 @@
 
 # Conv.default_act = nn.Hardswish()
 
+from __future__ import annotations
+
 import argparse
 from pathlib import Path
 
 import yaml
+
 from ultralytics import YOLO
 
 # ── 默认配置（也可用命令行覆盖）──
@@ -17,16 +20,24 @@ DATA_ROOT = ""  # 填数据根目录则用 images/labels；留空则用 DATA_YAM
 DATA_YAML = "/mnt/sda1/xzm/Code/ultralytics-main-afss/yaml/yolov11_fisher_detect.yaml"
 VAL_SUBDIR = "val"  # 例如 val → images/val；留空 → 直接用 images/
 
-CLASS_NAMES =['cargoship']
+CLASS_NAMES = ["cargoship"]
 
 models = [
-    ("v11s_1280_afss", "/mnt/sda1/xzm/Code/ultralytics-main-afss/runs/detect/runs/train/FISHER_DETECT_v11s_1280_AFSS_0807/weights/best.pt", 1280),
-    ("v11s_1280", "/mnt/sda1/xzm/Code/ultralytics-main/runs/detect/runs/train/FISHER_DETECT_v11s_1280_0618/weights/best.pt", 1280)
+    (
+        "v11s_1280_afss",
+        "/mnt/sda1/xzm/Code/ultralytics-main-afss/runs/detect/runs/train/FISHER_DETECT_v11s_1280_AFSS_0807/weights/best.pt",
+        1280,
+    ),
+    (
+        "v11s_1280",
+        "/mnt/sda1/xzm/Code/ultralytics-main/runs/detect/runs/train/FISHER_DETECT_v11s_1280_0618/weights/best.pt",
+        1280,
+    ),
 ]
 
 
 def infer_data_root_from_yaml(data_yaml: str) -> Path | None:
-    """从 yaml 的 train/val/test 路径推断 split 根目录（含 images/、labels/）。"""
+    """从 yaml 的 train/val/test 路径推断 split 根目录（含 images/、labels/）。."""
     cfg = yaml.safe_load(Path(data_yaml).read_text(encoding="utf-8"))
     for key in ("val", "train", "test"):
         raw = cfg.get(key)
@@ -41,7 +52,7 @@ def infer_data_root_from_yaml(data_yaml: str) -> Path | None:
 
 
 def build_data_yaml(data_root: str, names: list[str], subdir: str = "") -> str:
-    """根据 images/ + labels/ 目录生成临时 yaml（YOLO 会自动把 images 路径映射到 labels）。"""
+    """根据 images/ + labels/ 目录生成临时 yaml（YOLO 会自动把 images 路径映射到 labels）。."""
     root = Path(data_root)
     images = root / "images" / subdir if subdir else root / "images"
     labels = root / "labels" / subdir if subdir else root / "labels"
