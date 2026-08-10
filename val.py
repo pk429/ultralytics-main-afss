@@ -26,7 +26,7 @@ models = [
 
 
 def infer_data_root_from_yaml(data_yaml: str) -> Path | None:
-    """从 yaml 的 train/val/test 路径推断 split 根目录（含 images/、labels/）。"""
+    """从 yaml 的 train/val/test 路径推断 split 根目录（含 images/、labels/）。."""
     cfg = yaml.safe_load(Path(data_yaml).read_text(encoding="utf-8"))
     for key in ("val", "train", "test"):
         raw = cfg.get(key)
@@ -41,7 +41,7 @@ def infer_data_root_from_yaml(data_yaml: str) -> Path | None:
 
 
 def build_data_yaml(data_root: str, names: list[str], subdir: str = "") -> str:
-    """根据 images/ + labels/ 目录生成临时 yaml（YOLO 会自动把 images 路径映射到 labels）。"""
+    """根据 images/ + labels/ 目录生成临时 yaml（YOLO 会自动把 images 路径映射到 labels）。."""
     root = Path(data_root)
     images = root / "images" / subdir if subdir else root / "images"
     labels = root / "labels" / subdir if subdir else root / "labels"
