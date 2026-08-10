@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """AFSS training entrypoint.
 
 Example:
@@ -19,7 +18,9 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments for AFSS training."""
     parser = argparse.ArgumentParser(description="Train YOLO with AFSS enabled.")
     parser.add_argument("--model", default="./ultralytics/cfg/models/11/yolo11s.yaml", help="model cfg or weights path")
-    parser.add_argument("--weights", default="yolo11s.pt", help="optional pretrained weights to load; empty disables load")
+    parser.add_argument(
+        "--weights", default="yolo11s.pt", help="optional pretrained weights to load; empty disables load"
+    )
     parser.add_argument("--data", default="./yaml/yolov11_fisher_detect.yaml", help="dataset yaml path")
     parser.add_argument("--imgsz", type=int, default=1280, help="train image size")
     parser.add_argument("--epochs", type=int, default=200, help="training epochs")
@@ -36,13 +37,17 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--no-afss", action="store_true", help="disable AFSS and run normal training")
     parser.add_argument("--afss-auto-tune", action="store_true", default=True, help="auto-tune AFSS params")
-    parser.add_argument("--no-afss-auto-tune", dest="afss_auto_tune", action="store_false", help="use manual AFSS params")
+    parser.add_argument(
+        "--no-afss-auto-tune", dest="afss_auto_tune", action="store_false", help="use manual AFSS params"
+    )
     parser.add_argument("--afss-easy-thresh", type=float, default=0.8, help="Easy threshold for sufficiency")
     parser.add_argument("--afss-hard-thresh", type=float, default=0.3, help="Hard threshold for sufficiency")
     parser.add_argument("--afss-easy-ratio", type=float, default=0.02, help="Easy image sampling ratio")
     parser.add_argument("--afss-moderate-ratio", type=float, default=0.4, help="Moderate image sampling ratio")
     parser.add_argument("--afss-update-interval", type=int, default=5, help="AFSS metric update interval in epochs")
-    parser.add_argument("--afss-warmup-epochs", type=int, default=10, help="full-data warmup epochs before AFSS sampling")
+    parser.add_argument(
+        "--afss-warmup-epochs", type=int, default=10, help="full-data warmup epochs before AFSS sampling"
+    )
     return parser.parse_args()
 
 
