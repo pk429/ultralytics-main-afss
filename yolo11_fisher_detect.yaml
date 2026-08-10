@@ -1,7 +1,0 @@
-train: /mnt/sda1/xzm/datasets/fishman_visible_datasets/split/images/train  # train images (relative to 'path') 4 images
-val: /mnt/sda1/xzm/datasets/fishman_visible_datasets/split/images/val  # val images (relative to 'path') 4 images
-
-nc: 2
-
-# class names
-names: ['fisher','umbrella']
