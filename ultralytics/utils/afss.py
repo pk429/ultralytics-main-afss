@@ -12,7 +12,6 @@ from __future__ import annotations
 import math
 import random
 from pathlib import Path
-from typing import Dict, List
 
 import numpy as np
 
@@ -73,11 +72,11 @@ class AFSSManager:
 
         self.current_epoch = 0
         self._classify_dirty = True
-        self._easy_indices: List[int] = []
-        self._moderate_indices: List[int] = []
-        self._hard_indices: List[int] = []
+        self._easy_indices: list[int] = []
+        self._moderate_indices: list[int] = []
+        self._hard_indices: list[int] = []
         self._adapted = False
-        self.history: List[dict] = []
+        self.history: list[dict] = []
 
     def update_metrics(
         self,
@@ -105,7 +104,12 @@ class AFSSManager:
         self.precision[image_indices] = np.clip(precisions, 0.0, 1.0)
         self.recall[image_indices] = np.clip(recalls, 0.0, 1.0)
         self.sufficiency[image_indices] = np.minimum(self.precision[image_indices], self.recall[image_indices])
-        if self.class_aware and class_precisions is not None and class_recalls is not None and class_present is not None:
+        if (
+            self.class_aware
+            and class_precisions is not None
+            and class_recalls is not None
+            and class_present is not None
+        ):
             class_precisions = np.asarray(class_precisions, dtype=np.float32)[valid]
             class_recalls = np.asarray(class_recalls, dtype=np.float32)[valid]
             class_present = np.asarray(class_present, dtype=bool)[valid]
@@ -136,14 +140,14 @@ class AFSSManager:
                 )
         self._classify_dirty = True
 
-    def classify_images(self) -> tuple[List[int], List[int], List[int]]:
+    def classify_images(self) -> tuple[list[int], list[int], list[int]]:
         """Return Easy, Moderate, and Hard image indices."""
         if not self._classify_dirty:
             return self._easy_indices, self._moderate_indices, self._hard_indices
 
-        easy: List[int] = []
-        moderate: List[int] = []
-        hard: List[int] = []
+        easy: list[int] = []
+        moderate: list[int] = []
+        hard: list[int] = []
         scores = self.class_aware_sufficiency if self.class_aware else self.sufficiency
         for i, sufficiency in enumerate(scores):
             if sufficiency >= self.easy_thresh:
@@ -159,7 +163,7 @@ class AFSSManager:
         self._classify_dirty = False
         return easy, moderate, hard
 
-    def sample_indices(self, current_epoch: int) -> List[int]:
+    def sample_indices(self, current_epoch: int) -> list[int]:
         """Sample active image indices for a training epoch."""
         self.current_epoch = int(current_epoch)
 
@@ -169,7 +173,7 @@ class AFSSManager:
             return all_indices
 
         easy, moderate, hard = self.classify_images()
-        selected: List[int] = []
+        selected: list[int] = []
 
         selected.extend(hard)
         for idx in hard:
@@ -178,9 +182,7 @@ class AFSSManager:
         if moderate:
             n_target = max(1, int(len(moderate) * self.moderate_ratio))
             forced = [
-                idx
-                for idx in moderate
-                if (current_epoch - self.last_used_epoch[idx]) >= self.moderate_review_interval
+                idx for idx in moderate if (current_epoch - self.last_used_epoch[idx]) >= self.moderate_review_interval
             ]
             if len(forced) > n_target:
                 forced = random.sample(forced, n_target)
@@ -200,9 +202,7 @@ class AFSSManager:
         if easy:
             n_target = max(1, int(len(easy) * self.easy_ratio))
             n_forced = max(1, n_target // 2)
-            forced = [
-                idx for idx in easy if (current_epoch - self.last_used_epoch[idx]) >= self.easy_review_interval
-            ]
+            forced = [idx for idx in easy if (current_epoch - self.last_used_epoch[idx]) >= self.easy_review_interval]
             if len(forced) > n_forced:
                 forced = random.sample(forced, n_forced)
             selected.extend(forced)
@@ -399,9 +399,9 @@ class AFSSBatchSampler:
         self.batch_size = max(1, int(batch_size))
         self.drop_last = bool(drop_last)
         self._last_epoch = -1
-        self._last_active_indices: List[int] = []
+        self._last_active_indices: list[int] = []
 
-    def _compute_active(self) -> List[int]:
+    def _compute_active(self) -> list[int]:
         epoch = self.afss.current_epoch
         if epoch != self._last_epoch:
             self._last_epoch = epoch
@@ -440,7 +440,7 @@ def suggest_afss_params(
     num_classes: int = 10,
     easy_thresh: float = 0.8,
     hard_thresh: float = 0.3,
-) -> Dict:
+) -> dict:
     """Suggest conservative AFSS hyperparameters from dataset scale."""
     if num_images < 500:
         LOGGER.warning(

@@ -57,7 +57,7 @@ _FONT_CACHE: dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}
 
 
 def resolve_font_path() -> str:
-    """查找本机可用中文字体"""
+    """查找本机可用中文字体."""
     candidates = [
         "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
@@ -79,7 +79,7 @@ def get_font(font_size: int = FONT_SIZE) -> ImageFont.FreeTypeFont | ImageFont.I
 
 
 def cv2_img_add_text(img_bgr, text, left_top, color_bgr=(0, 255, 0), font_size=FONT_SIZE):
-    """在 BGR 图上画中文（PIL，避免 cv2.putText 乱码）"""
+    """在 BGR 图上画中文（PIL，避免 cv2.putText 乱码）."""
     if not text:
         return img_bgr
     x, y = int(left_top[0]), int(left_top[1])
@@ -93,7 +93,7 @@ def cv2_img_add_text(img_bgr, text, left_top, color_bgr=(0, 255, 0), font_size=F
 
 
 def parse_manual_box(text: str) -> tuple[float, float, float, float]:
-    """解析人工框，支持 (782,53)-(1124,784) 或 782,53,1124,784"""
+    """解析人工框，支持 (782,53)-(1124,784) 或 782,53,1124,784."""
     nums = [float(x) for x in re.findall(r"[\d.]+", text.strip())]
     if len(nums) != 4:
         raise ValueError(
@@ -119,7 +119,7 @@ def detection_from_xyxy(
     conf: float = 1.0,
     source: str = "manual",
 ) -> dict[str, Any]:
-    """由像素坐标构造与 YOLO 一致的 detection 字典"""
+    """由像素坐标构造与 YOLO 一致的 detection 字典."""
     return {
         "box_id": box_id,
         "class_id": -1,
@@ -155,7 +155,7 @@ def run_yolo(
     device: str = YOLO_DEVICE,
     class_filter: list[str] | None = YOLO_CLASSES_FILTER,
 ) -> tuple[list[dict[str, Any]], int, int, float, float]:
-    """返回 detections, h, w, yolo_infer_ms, yolo_load_ms（加载仅首次>0）"""
+    """返回 detections, h, w, yolo_infer_ms, yolo_load_ms（加载仅首次>0）."""
     yolo_load_ms = 0.0
     if weights not in _YOLO_CACHE:
         t0 = time.perf_counter()
@@ -200,7 +200,7 @@ def run_yolo(
 
 
 def draw_boxes(image_path: str, detections: list[dict], out_path: Path) -> str:
-    """红框图（送大模型）"""
+    """红框图（送大模型）."""
     img = cv2.imread(image_path)
     if img is None:
         raise FileNotFoundError(f"无法读取图像: {image_path}")
@@ -220,7 +220,7 @@ def draw_result_vis(
     llm_judgement: dict | None,
     out_path: Path,
 ) -> str:
-    """研判可视化：绿=告警，黄=不告警，红=仅 YOLO"""
+    """研判可视化：绿=告警，黄=不告警，红=仅 YOLO."""
     img = cv2.imread(image_path)
     if img is None:
         raise FileNotFoundError(image_path)

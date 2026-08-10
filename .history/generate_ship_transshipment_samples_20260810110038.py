@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import mimetypes
 import os
@@ -5,9 +7,8 @@ import random
 import time
 from pathlib import Path
 
-from PIL import Image, ImageOps, JpegImagePlugin
 import requests
-
+from PIL import Image, ImageOps, JpegImagePlugin
 
 # ========= 修改这里 =========
 BASE_URL = os.getenv("IMAGE_API_BASE_URL", "http://47.89.248.63/v1")
@@ -40,7 +41,7 @@ MAX_RETRIES = 2
 RETRY_SLEEP_SECONDS = 5
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+LANCZOS = getattr(Image, "Resampling", Image).LANCZOS
 
 
 BASE_PROMPT = """
@@ -646,9 +647,7 @@ def collect_input_images(input_source: str) -> list[Path]:
         images = [source]
     elif source.is_dir():
         images = [
-            path
-            for path in sorted(source.iterdir())
-            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+            path for path in sorted(source.iterdir()) if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
         ]
     else:
         raise FileNotFoundError(f"找不到输入图片或目录: {input_source}")
@@ -686,46 +685,38 @@ def build_prompt() -> tuple[str, str]:
         k=min(3, len(TRANSFER_BOAT_REALISM_RULES)),
     )
     transfer_boat_text = "\n\n".join(
-        f"{index}. {rule.strip()}"
-        for index, rule in enumerate(transfer_boat_rules, start=1)
+        f"{index}. {rule.strip()}" for index, rule in enumerate(transfer_boat_rules, start=1)
     )
     crane_structure_rules = random.sample(
         CRANE_STRUCTURE_VARIATION_RULES,
         k=min(4, len(CRANE_STRUCTURE_VARIATION_RULES)),
     )
     crane_structure_text = "\n\n".join(
-        f"{index}. {rule.strip()}"
-        for index, rule in enumerate(crane_structure_rules, start=1)
+        f"{index}. {rule.strip()}" for index, rule in enumerate(crane_structure_rules, start=1)
     )
     operation_rules = random.sample(
         OPERATION_EVIDENCE_RULES,
         k=min(4, len(OPERATION_EVIDENCE_RULES)),
     )
-    operation_text = "\n\n".join(
-        f"{index}. {rule.strip()}"
-        for index, rule in enumerate(operation_rules, start=1)
-    )
+    operation_text = "\n\n".join(f"{index}. {rule.strip()}" for index, rule in enumerate(operation_rules, start=1))
     reference_style_rules = random.sample(
         REFERENCE_VISUAL_STYLE_RULES,
         k=min(4, len(REFERENCE_VISUAL_STYLE_RULES)),
     )
     reference_style_text = "\n\n".join(
-        f"{index}. {rule.strip()}"
-        for index, rule in enumerate(reference_style_rules, start=1)
+        f"{index}. {rule.strip()}" for index, rule in enumerate(reference_style_rules, start=1)
     )
     cargo_compatibility_rules = random.sample(
         CARGO_COMPATIBILITY_RULES,
         k=min(3, len(CARGO_COMPATIBILITY_RULES)),
     )
     cargo_compatibility_text = "\n\n".join(
-        f"{index}. {rule.strip()}"
-        for index, rule in enumerate(cargo_compatibility_rules, start=1)
+        f"{index}. {rule.strip()}" for index, rule in enumerate(cargo_compatibility_rules, start=1)
     )
     vessel_variants = VESSEL_VARIANTS.copy()
     random.shuffle(vessel_variants)
     vessel_text = "\n\n".join(
-        f"{index}. {variant.strip()}"
-        for index, variant in enumerate(vessel_variants[:4], start=1)
+        f"{index}. {variant.strip()}" for index, variant in enumerate(vessel_variants[:4], start=1)
     )
 
     prompt = f"""
