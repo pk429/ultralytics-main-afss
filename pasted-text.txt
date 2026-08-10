@@ -117,7 +117,7 @@ tracks or subtle ridges, low pile slopes, irregular edges, and natural loose-ear
         "name": "uncovered_yellow_sand",
         "prompt": """
 A positive sample vessel loaded with fully uncovered yellow sand. The cargo must be yellow,
-tan-yellow, or ochre sand. Real sand can look partially leveled or compacted, so the top may
+tan-yellow, or ocher sand. Real sand can look partially leveled or compacted, so the top may
 be broad and gently flat, but it must show fine granular texture, matte dry surface, subtle
 ripples or shovel/loader ridges, low pile slopes at the sides, and irregular pile edges. It
 must read as exposed sand, not a smooth tarp, deck paint, reflection, or flat cover.
@@ -1002,7 +1002,7 @@ Final check:
   matte surface, subtle height variation, edge pile slopes, low ridges, clods, or particle
   speckling. Some cargo surfaces may be partially leveled or compacted as in real loading,
   especially sand, soil, gravel, and mixed aggregate.
-- Include white or dark crushed stone / gravel / coarse sand, dark or ochre earthwork soil,
+- Include white or dark crushed stone / gravel / coarse sand, dark or ocher earthwork soil,
   yellow/tan-yellow sand, exposed coal, and mixed gravel-sand-coal as distinct visible cargo
   materials.
 - The yellow sand cargo type must read as visibly yellow/tan-yellow granular sand, not a flat
