@@ -55,7 +55,6 @@ from ultralytics.models.yolo.detect import DetectionTrainer
 class CustomTrainer(DetectionTrainer):
     def get_model(self, cfg, weights):
         """Loads a custom detection model given configuration and weight files."""
-        ...
 
 
 trainer = CustomTrainer(overrides={...})
@@ -72,7 +71,6 @@ from ultralytics.nn.tasks import DetectionModel
 class MyCustomModel(DetectionModel):
     def init_criterion(self):
         """Initializes the loss function and adds a callback for uploading the model to Google Drive every 10 epochs."""
-        ...
 
 
 class CustomTrainer(DetectionTrainer):
@@ -104,15 +102,15 @@ Customize other components like `Validators` and `Predictors` similarly. For mor
 The `YOLO` model class provides a high-level wrapper for Trainer classes. You can leverage this architecture for greater flexibility in your machine learning workflows:
 
 ```python
-from ultralytics import YOLO
 from ultralytics.models.yolo.detect import DetectionTrainer
+
+from ultralytics import YOLO
 
 
 # Create a custom trainer
 class MyCustomTrainer(DetectionTrainer):
     def get_model(self, cfg, weights):
         """Custom code implementation."""
-        ...
 
 
 # Initialize YOLO model
@@ -137,7 +135,6 @@ from ultralytics.models.yolo.detect import DetectionTrainer
 class CustomTrainer(DetectionTrainer):
     def get_model(self, cfg, weights):
         """Loads a custom detection model given configuration and weight files."""
-        ...
 
 
 trainer = CustomTrainer(overrides={...})
@@ -204,7 +201,6 @@ from ultralytics.models.yolo.detect import DetectionTrainer
 class CustomDetectionTrainer(DetectionTrainer):
     def get_model(self, cfg, weights):
         """Loads a custom detection model."""
-        ...
 
 
 trainer = CustomDetectionTrainer(overrides={...})
