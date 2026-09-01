@@ -113,8 +113,9 @@ You can fine-tune any [pretrained YOLOE model](#textvisual-prompt-models) on you
         Fine-tuning a YOLOE pretrained checkpoint mostly follows the [standard YOLO training procedure](../modes/train.md). The key difference is explicitly passing `YOLOEPESegTrainer` as the `trainer` parameter to `model.train()`:
 
         ```python
-        from ultralytics import YOLOE
         from ultralytics.models.yolo.yoloe import YOLOEPESegTrainer
+
+        from ultralytics import YOLOE
 
         model = YOLOE("yoloe-26s-seg.pt")
 
@@ -132,8 +133,9 @@ You can fine-tune any [pretrained YOLOE model](#textvisual-prompt-models) on you
         All [pretrained YOLOE models](#textvisual-prompt-models) perform instance segmentation by default. To use these pretrained checkpoints for training a detection model, initialize a detection model from scratch using the YAML configuration, then load the pretrained segmentation checkpoint of the same scale. Note that we use `YOLOEPETrainer` instead of `YOLOEPESegTrainer` since we're training a detection model:
 
         ```python
-        from ultralytics import YOLOE
         from ultralytics.models.yolo.yoloe import YOLOEPETrainer
+
+        from ultralytics import YOLOE
 
         # Initialize a detection model from a config
         model = YOLOE("yoloe-26s.yaml")
@@ -157,8 +159,9 @@ You can fine-tune any [pretrained YOLOE model](#textvisual-prompt-models) on you
         **Instance segmentation**
 
         ```python
-        from ultralytics import YOLOE
         from ultralytics.models.yolo.yoloe import YOLOEPESegTrainer
+
+        from ultralytics import YOLOE
 
         # Load a pretrained segmentation model
         model = YOLOE("yoloe-26s-seg.pt")
@@ -167,7 +170,7 @@ You can fine-tune any [pretrained YOLOE model](#textvisual-prompt-models) on you
         head_index = len(model.model.model) - 1
 
         # Freeze all backbone and neck layers (i.e., everything before the head)
-        freeze = [str(i) for i in range(0, head_index)]
+        freeze = [str(i) for i in range(head_index)]
 
         # Freeze parts of the segmentation head, keeping only the classification branch trainable
         for name, child in model.model.model[-1].named_children():
@@ -201,8 +204,9 @@ You can fine-tune any [pretrained YOLOE model](#textvisual-prompt-models) on you
         For object detection task, the training process is almost the same as the instance segmentation example above but we use `YOLOEPETrainer` instead of `YOLOEPESegTrainer`, and initialize the object detection model using the YAML and then load the weights from the pretrained instance segmentation checkpoint.
 
         ```python
-        from ultralytics import YOLOE
         from ultralytics.models.yolo.yoloe import YOLOEPETrainer
+
+        from ultralytics import YOLOE
 
         # Initialize a detection model from a config
         model = YOLOE("yoloe-26s.yaml")
@@ -214,7 +218,7 @@ You can fine-tune any [pretrained YOLOE model](#textvisual-prompt-models) on you
         head_index = len(model.model.model) - 1
 
         # Freeze all backbone and neck layers (i.e., everything before the head)
-        freeze = [str(i) for i in range(0, head_index)]
+        freeze = [str(i) for i in range(head_index)]
 
         # Freeze parts of the segmentation head, keeping only the classification branch trainable
         for name, child in model.model.model[-1].named_children():
@@ -281,29 +285,29 @@ YOLOE supports both text-based and visual prompting. Using prompts is straightfo
 
         ```python
         import numpy as np
+        from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 
         from ultralytics import YOLOE
-        from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 
         # Initialize a YOLOE model
         model = YOLOE("yoloe-26l-seg.pt")
 
         # Define visual prompts using bounding boxes and their corresponding class IDs.
         # Each box highlights an example of the object you want the model to detect.
-        visual_prompts = dict(
-            bboxes=np.array(
+        visual_prompts = {
+            "bboxes": np.array(
                 [
                     [221.52, 405.8, 344.98, 857.54],  # Box enclosing person
                     [120, 425, 160, 445],  # Box enclosing glasses
                 ],
             ),
-            cls=np.array(
+            "cls": np.array(
                 [
                     0,  # ID to be assigned for person
                     1,  # ID to be assigned for glasses
                 ]
             ),
-        )
+        }
 
         # Run inference on an image, using the provided visual prompts as guidance
         results = model.predict(
@@ -324,18 +328,18 @@ YOLOE supports both text-based and visual prompting. Using prompts is straightfo
 
         ```python
         import numpy as np
+        from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 
         from ultralytics import YOLOE
-        from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 
         # Initialize a YOLOE model
         model = YOLOE("yoloe-26l-seg.pt")
 
         # Define visual prompts based on a separate reference image
-        visual_prompts = dict(
-            bboxes=np.array([[221.52, 405.8, 344.98, 857.54]]),  # Box enclosing person
-            cls=np.array([0]),  # ID to be assigned for person
-        )
+        visual_prompts = {
+            "bboxes": np.array([[221.52, 405.8, 344.98, 857.54]]),  # Box enclosing person
+            "cls": np.array([0]),  # ID to be assigned for person
+        }
 
         # Run prediction on a different image, using reference image to guide what to look for
         results = model.predict(
@@ -362,17 +366,17 @@ YOLOE supports both text-based and visual prompting. Using prompts is straightfo
 
         ```python
         import numpy as np
+        from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 
         from ultralytics import YOLOE
-        from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 
         # Initialize a YOLOE model
         model = YOLOE("yoloe-26l-seg.pt")
 
         # Define visual prompts using bounding boxes and their corresponding class IDs.
         # Each box highlights an example of the object you want the model to detect.
-        visual_prompts = dict(
-            bboxes=[
+        visual_prompts = {
+            "bboxes": [
                 np.array(
                     [
                         [221.52, 405.8, 344.98, 857.54],  # Box enclosing person
@@ -381,7 +385,7 @@ YOLOE supports both text-based and visual prompting. Using prompts is straightfo
                 ),
                 np.array([[150, 200, 1150, 700]]),
             ],
-            cls=[
+            "cls": [
                 np.array(
                     [
                         0,  # ID to be assigned for person
@@ -390,7 +394,7 @@ YOLOE supports both text-based and visual prompting. Using prompts is straightfo
                 ),
                 np.array([0]),
             ],
-        )
+        }
 
         # Run inference on multiple images, using the provided visual prompts as guidance
         results = model.predict(
@@ -536,26 +540,27 @@ The export process is similar to other YOLO models, with the added flexibility o
     === "Text Prompt"
 
         ```python
-        from ultralytics import YOLOE
         from ultralytics.models.yolo.yoloe import YOLOESegTrainerFromScratch
 
+        from ultralytics import YOLOE
+
         # Option 1: Use Python dictionary
-        data = dict(
-            train=dict(
-                yolo_data=["Objects365.yaml"],
-                grounding_data=[
-                    dict(
-                        img_path="flickr/full_images/",
-                        json_file="flickr/annotations/final_flickr_separateGT_train_segm.json",
-                    ),
-                    dict(
-                        img_path="mixed_grounding/gqa/images",
-                        json_file="mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
-                    ),
+        data = {
+            "train": {
+                "yolo_data": ["Objects365.yaml"],
+                "grounding_data": [
+                    {
+                        "img_path": "flickr/full_images/",
+                        "json_file": "flickr/annotations/final_flickr_separateGT_train_segm.json",
+                    },
+                    {
+                        "img_path": "mixed_grounding/gqa/images",
+                        "json_file": "mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
+                    },
                 ],
-            ),
-            val=dict(yolo_data=["lvis.yaml"]),
-        )
+            },
+            "val": {"yolo_data": ["lvis.yaml"]},
+        }
 
         # Option 2: Use YAML file (yoloe_data.yaml)
         # train:
@@ -594,8 +599,9 @@ The export process is similar to other YOLO models, with the added flexibility o
         Note this step is optional, you can directly start from segmentation as well.
 
         ```python
-        from ultralytics import YOLOE
         from ultralytics.utils.patches import torch_load
+
+        from ultralytics import YOLOE
 
         det_model = YOLOE("yoloe-26l.yaml")
         state = torch_load("yoloe-26l-seg.pt")
@@ -606,25 +612,26 @@ The export process is similar to other YOLO models, with the added flexibility o
         Start training:
 
         ```python
-        from ultralytics import YOLOE
         from ultralytics.models.yolo.yoloe import YOLOESegVPTrainer
 
-        data = dict(
-            train=dict(
-                yolo_data=["Objects365.yaml"],
-                grounding_data=[
-                    dict(
-                        img_path="flickr/full_images/",
-                        json_file="flickr/annotations/final_flickr_separateGT_train_segm.json",
-                    ),
-                    dict(
-                        img_path="mixed_grounding/gqa/images",
-                        json_file="mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
-                    ),
+        from ultralytics import YOLOE
+
+        data = {
+            "train": {
+                "yolo_data": ["Objects365.yaml"],
+                "grounding_data": [
+                    {
+                        "img_path": "flickr/full_images/",
+                        "json_file": "flickr/annotations/final_flickr_separateGT_train_segm.json",
+                    },
+                    {
+                        "img_path": "mixed_grounding/gqa/images",
+                        "json_file": "mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
+                    },
                 ],
-            ),
-            val=dict(yolo_data=["lvis.yaml"]),
-        )
+            },
+            "val": {"yolo_data": ["lvis.yaml"]},
+        }
 
         model = YOLOE("yoloe-26l-seg.pt")
         # replace to yoloe-26l-seg-det.pt if converted to detection model
@@ -632,7 +639,7 @@ The export process is similar to other YOLO models, with the added flexibility o
 
         # freeze every layer except of the savpe module.
         head_index = len(model.model.model) - 1
-        freeze = list(range(0, head_index))
+        freeze = list(range(head_index))
         for name, child in model.model.model[-1].named_children():
             if "savpe" not in name:
                 freeze.append(f"{head_index}.{name}")
@@ -677,8 +684,9 @@ The export process is similar to other YOLO models, with the added flexibility o
         Note this step is optional, you can directly start from segmentation as well.
 
         ```python
-        from ultralytics import YOLOE
         from ultralytics.utils.patches import torch_load
+
+        from ultralytics import YOLOE
 
         det_model = YOLOE("yoloe-26l.yaml")
         state = torch_load("yoloe-26l-seg.pt")
@@ -689,22 +697,22 @@ The export process is similar to other YOLO models, with the added flexibility o
         ```python
         from ultralytics import YOLOE
 
-        data = dict(
-            train=dict(
-                yolo_data=["Objects365.yaml"],
-                grounding_data=[
-                    dict(
-                        img_path="flickr/full_images/",
-                        json_file="flickr/annotations/final_flickr_separateGT_train_segm.json",
-                    ),
-                    dict(
-                        img_path="mixed_grounding/gqa/images",
-                        json_file="mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
-                    ),
+        data = {
+            "train": {
+                "yolo_data": ["Objects365.yaml"],
+                "grounding_data": [
+                    {
+                        "img_path": "flickr/full_images/",
+                        "json_file": "flickr/annotations/final_flickr_separateGT_train_segm.json",
+                    },
+                    {
+                        "img_path": "mixed_grounding/gqa/images",
+                        "json_file": "mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
+                    },
                 ],
-            ),
-            val=dict(yolo_data=["lvis.yaml"]),
-        )
+            },
+            "val": {"yolo_data": ["lvis.yaml"]},
+        }
 
         model = YOLOE("yoloe-26l-seg.pt")
         # replace to yoloe-26l-seg-det.pt if converted to detection model
@@ -712,7 +720,7 @@ The export process is similar to other YOLO models, with the added flexibility o
 
         # freeze layers.
         head_index = len(model.model.model) - 1
-        freeze = [str(f) for f in range(0, head_index)]
+        freeze = [str(f) for f in range(head_index)]
         for name, child in model.model.model[-1].named_children():
             if "cv3" not in name:
                 freeze.append(f"{head_index}.{name}")
