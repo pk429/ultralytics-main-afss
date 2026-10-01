@@ -72,7 +72,7 @@ setup_trt_library_path() {
 }
 
 usage() {
-  cat <<'EOF'
+  cat << 'EOF'
 Usage:
   batch_onnx2engine.sh [OPTIONS] [ONNX ...]
 
@@ -125,7 +125,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --onnx)
       shift
-      [[ $# -gt 0 ]] || { echo "ERROR: --onnx requires a path" >&2; exit 1; }
+      [[ $# -gt 0 ]] || {
+        echo "ERROR: --onnx requires a path" >&2
+        exit 1
+      }
       onnx_args+=("$1")
       shift
       ;;
@@ -154,7 +157,7 @@ if [[ ! -d "${MODELS_DIR}" ]]; then
 fi
 
 if [[ ! -x "${TRTEXEC_BIN}" ]]; then
-  if command -v trtexec >/dev/null 2>&1; then
+  if command -v trtexec > /dev/null 2>&1; then
     TRTEXEC_BIN="$(command -v trtexec)"
   else
     echo "ERROR: trtexec not found. Set TRTEXEC_BIN to a valid executable." >&2
@@ -287,7 +290,7 @@ wait || true
 ok_count=0
 fail_count=0
 for status_file in "${tmp_dir}"/*.status; do
-  rc="$(<"${status_file}")"
+  rc="$(< "${status_file}")"
   if [[ "${rc}" == "0" ]]; then
     ok_count=$((ok_count + 1))
   else
