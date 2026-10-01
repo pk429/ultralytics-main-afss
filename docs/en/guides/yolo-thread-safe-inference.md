@@ -122,8 +122,9 @@ In this example, each thread creates its own `YOLO` instance. This prevents any 
 Ultralytics provides a `ThreadingLocked` decorator that can be used to ensure thread-safe execution of functions. This decorator uses a lock to ensure that only one thread at a time can execute the decorated function.
 
 ```python
-from ultralytics import YOLO
 from ultralytics.utils import ThreadingLocked
+
+from ultralytics import YOLO
 
 # Create a model instance
 model = YOLO("yolo26n.pt")
